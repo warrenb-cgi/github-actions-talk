@@ -1,0 +1,30 @@
+name: Cleanup Reports
+on:
+  workflow_dispatch:
+    inputs:
+      branch-name-to-clean:
+        description: 'Name of the branch for which to clean up reports'
+        required: true
+      # can also do checkboxes and dropdowns
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          ref: gh-pages
+          # This will switch the user that makes commits
+          # GitHub does not trigger workflows for changes made by the action runner
+          # https://docs.github.com/en/actions/using-workflows/triggering-a-workflow#triggering-a-workflow-from-a-workflow
+          token: ${{ secrets.ACTION_PAT }}
+      - id: cleanup
+        run: find "playwright-report/${{github.event.inputs.branch-name-to-clean}}" -delete
+      - id: publish-changes
+        run: |
+          if [[ `git status --porcelain` ]]; then
+            git config user.email "${{secrets.ACTION_GIT_EMAIL}}"
+            git config user.name "${{secrets.ACTION_GIT_NAME}}"
+            git add --all
+            git commit -m "Index updates"
+            git push
+          fi

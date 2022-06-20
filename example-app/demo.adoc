@@ -1,0 +1,1075 @@
+:experimental:
+// Define unicode for Apple Command key.
+:commandkey: &#8984;
+:toc: macro
+
+== React + Spring Boot with Kotlin Demo Steps
+
+In this demo, I'll show how to build a client and server application using React for the frontend and Kotlin with Spring Boot for the backend.
+
+**Prerequisites:**
+
+* https://adoptopenjdk.net/[Java 11]+
+* https://nodejs.org/[Node 12]+
+* https://yarnpkg.com/lang/en/docs/install/[Yarn]
+* https://httpie.org/doc#installation[HTTPie]
+* An https://developer.okta.com/signup/[Okta Developer Account]
+
+TIP: The brackets at the end of some steps indicate the IntelliJ Live Templates to use. You can find the template definitions at https://github.com/mraible/idea-live-templates[mraible/idea-live-templates].
+
+toc::[]
+
+=== Create a Kotlin + Spring Boot App
+
+. Create a `kotlin-react-app` directory for both projects.
+
+. Create a https://start.spring.io/#!type=gradle-project&language=kotlin&platformVersion=2.3.3.RELEASE&packaging=jar&jvmVersion=11&groupId=com.okta.kotlin&artifactId=resourceserver&name=ResourceServer&description=rest%20api%20for%20react%20app&packageName=com.okta.kotlin&dependencies=web,data-jpa,data-rest,h2[new Spring Boot app] with Gradle, Kotlin, Spring MVC, JPA, Rest Repositories, and H2.
+
+. Extract the generated project to `kotlin-react-app/resourceserver`.
+
+. Start your Spring Boot app with `./gradlew bootRun`.
+
+. Verify it works: `http :8080`
+
+. Explain how the `spring-boot-starter-data-rest` starter includes Spring’s auto-magic "hypermedia-based RESTful front end" (as Spring describes it in https://spring.io/guides/gs/accessing-data-rest/[their docs]).
+
+=== Create a Kotlin REST API
+
+. Create a new Kotlin class called `CoffeeShopModel.kt`. [`coffee-shop`]
++
+[source,kotlin]
+----
+package com.okta.kotlin
+
+import javax.persistence.Entity
+import javax.persistence.GeneratedValue
+import javax.persistence.GenerationType
+import javax.persistence.Id
+
+@Entity
+data class CoffeeShopModel(
+    @Id
+    @GeneratedValue(strategy = GenerationType.AUTO)
+    var id: Long = -1,
+    var name: String = "",
+    var address: String = "",
+    var phone: String = "",
+    var priceOfCoffee: Double = 0.0,
+    var powerAccessible: Boolean = true,
+    var internetReliability: Short = 3 // 1-5
+) {}
+----
+
+. Create a Kotlin class called `CoffeeShopRepository.kt` in the same package. [`coffee-repo`]
++
+[source,kotlin]
+----
+package com.okta.kotlin
+
+import org.springframework.data.repository.CrudRepository
+import org.springframework.data.rest.core.annotation.RepositoryRestResource
+
+@RepositoryRestResource(collectionResourceRel = "coffeeshops", path = "coffeeshops")
+interface CoffeeShopRepository : CrudRepository <CoffeeShopModel, Long >{
+}
+----
+
+. Add a couple sample coffee shops to `ResourceServerApplication.kt`. [`coffee-data`]
++
+[source,kotlin]
+----
+class ResourceServerApplication  {
+
+  @Bean
+  fun run(repository: CoffeeShopRepository) = ApplicationRunner {
+    repository.save(CoffeeShopModel(
+      name = "Oblique",
+      address = "3039 SE Stark St, Portland, OR 97214",
+      phone = "555-111-4444",
+      priceOfCoffee = 1.50,
+      powerAccessible = true,
+      internetReliability = 5
+    ))
+    repository.save(CoffeeShopModel(
+      name = "Epoch Coffee",
+      address = "221 W N Loop Blvd, Austin, TX 78751",
+      phone = "555-111-2424",
+      priceOfCoffee = 2.50,
+      powerAccessible = true,
+      internetReliability = 3
+    ))
+  }
+
+}
+----
+
+. Restart everything and test your new REST API.
+
+  http :8080/coffeeshops
+
+. Add the `id` field to responses by adding a `RestConfiguration` class. [`coffee-apiconfig`]
++
+[source,kotlin]
+----
+package com.okta.kotlin
+
+import org.springframework.context.annotation.Configuration
+import org.springframework.data.rest.core.config.RepositoryRestConfiguration
+import org.springframework.data.rest.webmvc.config.RepositoryRestConfigurer
+
+@Configuration
+open class RestConfiguration : RepositoryRestConfigurer {
+  override fun configureRepositoryRestConfiguration(config: RepositoryRestConfiguration?) {
+    config?.exposeIdsFor(CoffeeShopModel::class.java)
+    config?.setBasePath("/api");
+  }
+}
+----
+
+. Restart and show how IDs are now included.
+
+  http :8080/api/coffeeshops
+
+=== Create a React Frontend
+
+. Create a new React app using Create React App
+
+  yarn create react-app client
++
+TIP: If this doesn't work, you can use `npx create-react-app client`
+
+. Add dependencies on Bootstrap, React Router DOM, and Reactstrap
+
+  yarn add bootstrap react-router-dom reactstrap
+
+. Add Bootstrap’s CSS file as an import in `client/src/index.js`.
+
+  import 'bootstrap/dist/css/bootstrap.min.css';
+
+. Update the `client/src/App.js` file. [`coffee-app`]
++
+.`client/src/App.js`
+[%collapsible]
+====
+[source,jsx]
+----
+import React, { Component } from 'react';
+import './App.css';
+
+class App extends Component {
+  state = {
+    isLoading: true,
+    coffeeShops: []
+  };
+
+  async componentDidMount() {
+    const response = await fetch('/api/coffeeshops');
+    const body = await response.json();
+    this.setState({coffeeShops: body._embedded.coffeeshops, isLoading: false});
+  }
+
+  render() {
+    const {coffeeShops, isLoading} = this.state;
+
+    if (isLoading) {
+      return <p>Loading...</p>;
+    }
+
+    return (
+      <div className="App">
+        <header className="App-header">
+          <div className="App-intro">
+            <h2>Coffee Shop List</h2>
+            {coffeeShops.map(coffeeShop =>
+              <div key={coffeeShop.id}>
+                {coffeeShop.name} - {coffeeShop.address}
+              </div>
+            )}
+          </div>
+        </header>
+      </div>
+    );
+  }
+}
+
+export default App;
+----
+====
+
+. Add a proxy to `package.json` to send requests to the backend.
++
+[source,json]
+----
+"proxy": "http://localhost:8080",
+----
+
+. Start your React app using `yarn start`.
+
+=== Build a Full-Featured React UI
+
+. Change `src/App.js` to add three routes: a `/` route, a `/coffee-shops` route, and a `/coffee-shops/:id` route for editing and creating new coffee shop entries. [`coffee-routes`]
++
+.`client/src/App.js`
+[%collapsible]
+====
+[source,jsx]
+----
+import React, { Component } from 'react';
+import './App.css';
+import Home from './Home';
+import { BrowserRouter as Router, Route, Switch } from 'react-router-dom';
+import CoffeeShopsList from './CoffeeShopsList';
+import CoffeeShopEdit from './CoffeeShopEdit';
+import Api from './Api';
+import NavBar from './NavBar';
+
+const api = new Api();
+
+class App extends Component {
+
+  render() {
+    const navbar = <NavBar/>;
+
+    return (
+      <Router>
+        <Switch>
+          <Route
+            path='/'
+            exact={true}
+            render={(props) => <Home {...props} api={api} navbar={navbar}/>}
+          />
+          <Route
+            path='/coffee-shops'
+            exact={true}
+            render={(props) => <CoffeeShopsList {...props} api={api} navbar={navbar}/>}
+          />
+          <Route
+            path='/coffee-shops/:id'
+            render={(props) => <CoffeeShopEdit {...props} api={api} navbar={navbar}/>}
+          />
+        </Switch>
+      </Router>
+    )
+  }
+}
+
+export default App;
+----
+====
+
+. Create `src/Home.js` for a simple home page to display the navigation bar, and a button to open the list of coffee shops. [`coffee-home`]
++
+.`src/Home.js`
+[%collapsible]
+====
+[source,jsx]
+----
+import React, { Component } from 'react';
+import './App.css';
+import { Link } from 'react-router-dom';
+import { Button, Container } from 'reactstrap';
+
+class Home extends Component {
+
+  render() {
+    return (
+      <div className="app">
+        {this.props.navbar}
+        <Container fluid>
+          <div>
+            <Button color="secondary">
+              <Link className="app-link" to="/coffee-shops">Manage Coffee Shops</Link>
+            </Button>
+          </div>
+        </Container>
+      </div>
+    );
+  }
+}
+
+export default Home;
+----
+====
+
+. Create a `src/NavBar.js` to display Home and other links. [`coffee-navbar`]
++
+.`src/NavBar.js`
+[%collapsible]
+====
+[source,jsx]
+----
+import React, { Component } from 'react';
+import { Collapse, Nav, Navbar, NavbarBrand, NavbarToggler, NavItem, NavLink } from 'reactstrap';
+import { Link } from 'react-router-dom';
+
+class NavBar extends Component {
+
+  constructor(props) {
+    super(props);
+    this.state = {isOpen: false};
+    this.toggle = this.toggle.bind(this);
+  }
+
+  toggle() {
+    this.setState({
+      isOpen: !this.state.isOpen
+    });
+  }
+
+  render() {
+    return <Navbar color="light" light expand="md">
+      <NavbarBrand tag={Link} to="/">Home</NavbarBrand>
+      <NavbarToggler onClick={this.toggle}/>
+      <Collapse isOpen={this.state.isOpen} navbar>
+        <Nav className="ml-auto" navbar>
+          <NavItem>
+            <NavLink
+              href="https://twitter.com/oktadev">@oktadev</NavLink>
+          </NavItem>
+          <NavItem>
+            <NavLink href="https://github.com/oktadeveloper/okta-kotlin-react-crud-example">GitHub</NavLink>
+          </NavItem>
+        </Nav>
+      </Collapse>
+    </Navbar>;
+  }
+}
+
+export default NavBar;
+----
+====
+
+. Create `src/CoffeeShopsList.js` to hold the components that display the coffee shops in a responsive, card-style grid layout. [`coffee-list`]
++
+.`src/CoffeeShopsList.js`
+[%collapsible]
+====
+[source,jsx]
+----
+import React, { Component } from 'react';
+import {
+  Alert,
+  Button
+} from 'reactstrap';
+import { Link } from 'react-router-dom';
+
+const CoffeeShop = (props) => (
+  <div className="coffeeshop-container p-2 m-2 d-flex flex-column">
+    <h3>{props.name}</h3>
+    <div className="coffeeshop-body">
+      <div className="subtitle-container">
+        <div>Cost: ${props.priceOfCoffee} / cup</div>
+        <div>Internet Reliability: {props.internetReliability} / 5 </div>
+        <div>{ props.powerAccessible ? "Power Accessible" : "Power NOT Accessible"} </div>
+      </div>
+      <div>{props.address}</div>
+      <div>{props.phone}</div>
+    </div>
+    <div className="coffeeshop-footer">
+      <Button color="secondary" tag={Link} to={"/coffee-shops/" + props.id}>Edit</Button>
+      <Button color="danger" onClick={() => props.remove(props.id)}>Delete</Button>
+    </div>
+  </div>
+);
+
+class CoffeeShopsList extends Component {
+
+  constructor(props) {
+    super(props);
+    this.state = {
+      coffeeShops: [],
+      isLoading: true,
+      errorMessage: null
+    };
+    this.remove = this.remove.bind(this);
+  }
+
+  async componentDidMount() {
+    this.setState({isLoading: true});
+    const response = await this.props.api.getAll();
+    if (!response.ok) {
+      this.setState({
+          errorMessage: `Failed to load coffee shops: ${response.status} ${response.statusText}`,
+          isLoading: false
+        }
+      )
+    }
+    else {
+      const body = await response.json();
+      const coffeeShops = body._embedded.coffeeshops;
+      this.setState({
+        coffeeShops: coffeeShops,
+        isLoading: false,
+        errorMessage: null
+      });
+    }
+  }
+
+  async remove(id) {
+    let response = await this.props.api.delete(id);
+    if (!response.ok) {
+      this.setState({errorMessage: `Failed to delete coffee shop: ${response.status} ${response.statusText}`})
+    }
+    else {
+      let updatedCoffeeShops = [...this.state.coffeeShops].filter(i => i.id !== id);
+      this.setState({coffeeShops: updatedCoffeeShops, errorMessage: null});
+    }
+  }
+
+  render() {
+    const {coffeeShops, isLoading, errorMessage} = this.state;
+
+    if (isLoading) {
+      return <p>Loading...</p>;
+    }
+
+    return (
+      <div>
+        {this.props.navbar}
+        <div className="d-flex flex-row justify-content-between p-3">
+          <h3 className="coffee-shops-title">Coffee Shops</h3>
+          <Button color="success" tag={Link} to="/coffee-shops/new">Add New</Button>
+        </div>
+        { errorMessage ?
+          <div className="d-flex flex-row justify-content-center">
+            <Alert color="warning" style={{flex:1, maxWidth:'80%'}}>
+              {errorMessage}
+            </Alert>
+          </div> : null
+        }
+        <div className="d-flex flex-row flex-container flex-wrap justify-content-center">
+          { coffeeShops.map( coffeeShop =>
+            <CoffeeShop {...coffeeShop} remove={this.remove.bind(this)} key={coffeeShop.id}/>
+          )}
+          { !coffeeShops || coffeeShops.length === 0 ? <p>No coffee shops!</p> : null}
+        </div>
+      </div>
+    );
+  }
+}
+
+export default CoffeeShopsList;
+----
+====
+
+==== Add a React Component to Edit with Reactstrap Form Elements
+
+. Create `src/CoffeeShopEdit.js` to edit and create coffe shops. Notice how it uses Reactstrap form elements and makes some asynchronous calls to the server. [`coffee-edit`]
++
+.`src/CoffeeShopEdit.js`
+[%collapsible]
+====
+[source,jsx]
+----
+import React, { Component } from 'react';
+import { Link, withRouter } from 'react-router-dom';
+import { Alert, Button, Container, Form, FormGroup, Input, Label } from 'reactstrap';
+
+class CoffeeShopEdit extends Component {
+
+  emptyItem = {
+    name: '',
+    address: '',
+    phone: '',
+    priceOfCoffee: '',
+    powerAccessible: '',
+    internetReliability: ''
+  };
+
+  constructor(props) {
+    super(props);
+    this.state = {
+      item: this.emptyItem,
+      errorMessage: null,
+      isCreate: false
+    };
+    this.handleChange = this.handleChange.bind(this);
+    this.handleSubmit = this.handleSubmit.bind(this);
+  }
+
+  async componentDidMount() {
+    this.state.isCreate = this.props.match.params.id === 'new'; // are we editing or creating?
+    if (!this.state.isCreate) {
+      const response = await this.props.api.getById(this.props.match.params.id);
+      const coffeeShop = await response.json();
+      this.setState({item: coffeeShop});
+    }
+  }
+
+  handleChange(event) {
+    const target = event.target;
+    const value = target.value;
+    const name = target.name;
+    let item = {...this.state.item};
+    item[name] = value;
+    this.setState({item});
+  }
+
+  async handleSubmit(event) {
+    event.preventDefault();
+    const {item, isCreate} = this.state;
+
+    let result = isCreate ? await this.props.api.create(item) : await this.props.api.update(item);
+
+    if (!result.ok) {
+      this.setState({errorMessage: `Failed to ${isCreate ? 'create' : 'update'} record: ${result.status} ${result.statusText}`})
+    } else {
+      this.setState({errorMessage: null});
+      this.props.history.push('/coffee-shops');
+    }
+
+  }
+
+  render() {
+    const {item, errorMessage, isCreate} = this.state;
+    const title = <h2>{isCreate ? 'Add Coffee Shop' : 'Edit Coffee Shop'}</h2>;
+
+    return (
+      <div>
+        {this.props.navbar}
+        <Container style={{textAlign: 'left'}}>
+          {title}
+          {errorMessage ?
+            <Alert color="warning">
+              {errorMessage}
+            </Alert> : null
+          }
+          <Form onSubmit={this.handleSubmit}>
+            <div className="row">
+              <FormGroup className="col-md-8 mb-3">
+                <Label for="name">Name</Label>
+                <Input type="text" name="name" id="name" value={item.name || ''}
+                       onChange={this.handleChange} autoComplete="name"/>
+              </FormGroup>
+              <FormGroup className="col-md-4 mb-3">
+                <Label for="phone">Phone</Label>
+                <Input type="text" name="phone" id="phone" value={item.phone || ''}
+                       onChange={this.handleChange} autoComplete="phone"/>
+              </FormGroup>
+            </div>
+            <FormGroup>
+              <Label for="address">Address</Label>
+              <Input type="text" name="address" id="address" value={item.address || ''}
+                     onChange={this.handleChange} autoComplete="address-level1"/>
+            </FormGroup>
+            <div className="row">
+              <FormGroup className="col-md-4 mb-3">
+                <Label for="priceOfCoffee">Price of Coffee</Label>
+                <Input type="text" name="priceOfCoffee" id="priceOfCoffee" value={item.priceOfCoffee || ''}
+                       onChange={this.handleChange}/>
+              </FormGroup>
+              <FormGroup className="col-md-4 mb-3">
+                <Label for="powerAccessible">Power Accessible?</Label>
+                <Input type="select" name="powerAccessible" id="powerAccessible"
+                       value={item.powerAccessible ? 'true' : 'false'}
+                       onChange={this.handleChange}>
+                  <option value="true">Yes</option>
+                  <option value="false">No</option>
+                </Input>
+              </FormGroup>
+              <FormGroup className="col-md-4 mb-3">
+                <Label for="internetReliability">Internet Reliability</Label>
+                <Input type="select" name="internetReliability" id="internetReliability"
+                       value={item.internetReliability || '-'}
+                       onChange={this.handleChange}>
+                  <option>1</option>
+                  <option>2</option>
+                  <option>3</option>
+                  <option>4</option>
+                  <option>5</option>
+                  <option value="-">-</option>
+                </Input>
+              </FormGroup>
+            </div>
+            <FormGroup>
+              <Button color="primary" type="submit">Save</Button>{' '}
+              <Button color="secondary" tag={Link} to="/coffee-shops">Cancel</Button>
+            </FormGroup>
+          </Form>
+        </Container>
+      </div>
+    );
+  }
+}
+
+export default withRouter(CoffeeShopEdit);
+----
+====
+
+==== Add an Authentication-Aware Service for Server Requests
+
+. Create `src/Api.js` to centralize all of the server request logic. [`coffee-api`]
++
+.`src/Api.js`
+[%collapsible]
+====
+[source,js]
+----
+class Api {
+
+  constructor(authToken) {
+    this.authToken = authToken;
+  }
+
+  headers = {
+    'Accept': 'application/json',
+    'Content-Type': 'application/json'
+  };
+
+  BASE_URL = '/api/coffeeshops';
+
+  createHeaders() {
+    return this.authToken ? {
+      ...this.headers,
+      'Authorization': 'Bearer ' + this.authToken
+    } : this.headers;
+  }
+
+  async getAll() {
+    return await fetch(this.BASE_URL, {
+      method: 'GET',
+      headers: this.createHeaders()
+    });
+  }
+
+  async getById(id) {
+    return await fetch(`${this.BASE_URL}/${id}`, {
+      method: 'GET',
+      headers: this.createHeaders()
+    });
+  }
+
+  async delete(id) {
+    return await fetch(`${this.BASE_URL}/${id}`, {
+      method: 'DELETE',
+      headers: this.createHeaders()
+    });
+  }
+
+  async update(item) {
+    return await fetch(`${this.BASE_URL}/${item.id}`, {
+      method:'PUT',
+      headers: this.createHeaders(),
+      body: JSON.stringify(item)
+    });
+  }
+
+  async create(item) {
+    return await fetch(this.BASE_URL, {
+      method:'POST',
+      headers: this.createHeaders(),
+      body: JSON.stringify(item)
+    });
+  }
+}
+
+export default Api;
+----
+====
+
+==== Make Your React App Look Good
+
+. Modify `src/App.css` to have the following rules.
++
+.`src/App.css`
+[%collapsible]
+====
+[source,css]
+----
+html, #root {
+  background-color: #282c34;
+}
+
+.row {
+  margin-bottom: 10px;
+}
+
+a.app-link {
+   color: #d3d8e3;
+}
+
+a.app-link:hover {
+  color: #a2a9b8;
+  text-decoration: none;
+}
+
+.container-fluid {
+  color: white;
+  text-align: center;
+  padding-top: 40px;
+}
+
+.flex-container {
+  color: white;
+  text-align: center;
+  padding-top: 40px;
+}
+
+.container {
+  color: white;
+  text-align: left;
+  padding-top: 40px;
+}
+
+.coffee-shops-title {
+  color: white;
+}
+
+.coffeeshop-container {
+  width: 400px;
+  min-width: 300px;
+  background-color: #e9edf7;
+  border-radius: 10px;
+  color: #282c34;
+  font-size: calc(10px + 1.0vmin);
+}
+
+.coffeeshop-container h3 {
+  font-size: calc(10px + 2vmin);
+}
+
+.subtitle-container {
+  font-size: calc(10px + 0.8vmin);
+  color: #596273;
+  margin-bottom: 10px;
+}
+
+.coffeeshop-body {
+  flex: 1;
+  margin-bottom: 10px;
+}
+
+.coffeeshop-footer {
+  padding-top:8px;
+  margin-top:8px;
+  border-top: 1px solid #282c34;
+}
+
+.coffeeshop-footer .btn {
+  margin: 5px 5px;
+}
+
+@media only screen and (max-width: 992px) {
+  .coffeeshop-container {
+    width: 300px;
+  }
+}
+
+@media only screen and (max-width: 576px) {
+  .coffeeshop-container {
+    width: 80%;
+  }
+}
+----
+====
+
+. Run `yarn start` again if you need to.
+
+. You should be able to view, edit, create, and delete coffee shops.
+
+=== Secure Your Kotlin + React App
+
+. If you haven’t already, head over to http://developer.okta.com/[developer.okta.com] to sign up for a free account.
+
+. Add a SPA app with the following settings:
++
+- Name: `Kotlin React App`
+- Base URI: `\http://localhost:3000`
+- Login redirect URI: `\http://localhost:3000/callback`
+- Logout redirect URI: `http://localhost:3000`
+
+=== Configure the Resource Server for JWT Authentication
+
+. Add the Okta Spring Boot starter in `resourceserver/build.gradle.kts`:
++
+[source,kotlin]
+----
+dependencies {
+    ...
+    implementation("com.okta.spring:okta-spring-boot-starter:1.4.0")
+    ...
+}
+----
+
+. Create a `SecurityConfiguration` class to configure Spring Boot as an OAuth 2.0 resource server. [`coffee-security`]
++
+[source,kotlin]
+----
+package com.okta.kotlin
+
+import com.okta.spring.boot.oauth.Okta
+import org.springframework.context.annotation.Configuration
+import org.springframework.security.config.annotation.web.builders.HttpSecurity
+import org.springframework.security.config.annotation.web.configuration.WebSecurityConfigurerAdapter
+
+@Configuration
+class SecurityConfiguration : WebSecurityConfigurerAdapter() {
+  override fun configure(http: HttpSecurity) {
+    http
+      .csrf().disable()
+      .authorizeRequests().anyRequest().authenticated()
+      .and()
+      .oauth2ResourceServer().jwt();
+
+    // Send a 401 message to the browser (w/o this, you'll see a blank page)
+    Okta.configureResourceServer401ResponseBody(http);
+  }
+}
+----
+
+. Add your Okta configuration to `src/main/resources/application.properties` so a valid JWT is required for all requests.
+
+  okta.oauth2.issuer=https://{yourOktaUrl}/oauth2/default
+  okta.oauth2.clientId={yourClientID}
+
+. Stop and restart the resource server.
+
+. Confirm that a JWT is required to access any endpoints.
+
+  http :8080/api/coffeeshops
+
+=== Add OAuth 2.0 Login to the React Application
+
+. Add the Okta React SDK.
+
+  yarn add @okta/okta-react@3.0.4
+
+. Update `src/App.js` to add authentication logic. [`coffee-app-secure`]
++
+.`src/App.js`
+[%collapsible]
+====
+[source,jsx]
+----
+import React, { Component } from 'react';
+import './App.css';
+import Home from './Home';
+import { BrowserRouter as Router, Route, Switch } from 'react-router-dom';
+import { Security, SecureRoute, LoginCallback } from '@okta/okta-react';
+import CoffeeShopsList from './CoffeeShopsList';
+import CoffeeShopEdit from './CoffeeShopEdit';
+import { withAuth } from '@okta/okta-react';
+import Api from './Api';
+import NavBar from "./NavBar";
+
+const AuthWrapper = withAuth(class WrappedRoutes extends Component {
+
+  constructor(props) {
+    super(props);
+    this.state = { authenticated: null, user: null, api: new Api() };
+    this.checkAuthentication = this.checkAuthentication.bind(this);
+  }
+
+  async checkAuthentication() {
+    const authenticated = await this.props.auth.isAuthenticated();
+    if (authenticated !== this.state.authenticated) {
+      if (authenticated) {
+        const user = await this.props.auth.getUser();
+        let accessToken = await this.props.auth.getAccessToken();
+        this.setState({ authenticated, user, api: new Api(accessToken) });
+      }
+      else {
+        this.setState({ authenticated, user:null, api: new Api() });
+      }
+    }
+  }
+
+  async componentDidMount() {
+    this.checkAuthentication();
+  }
+
+  async componentDidUpdate() {
+    this.checkAuthentication();
+  }
+
+  async login() {
+    if (this.state.authenticated === null) return; // do nothing if auth isn't loaded yet
+    this.props.auth.login('/');
+  }
+
+  async logout() {
+    this.props.auth.logout('/');
+  }
+
+  render() {
+    let {authenticated, user, api} = this.state;
+
+    if (authenticated === null) {
+      return null;
+    }
+
+    const navbar = <NavBar
+      isAuthenticated={authenticated}
+      login={this.login.bind(this)}
+      logout={this.logout.bind(this)}
+    />;
+
+    return (
+      <Switch>
+        <Route
+          path='/'
+          exact={true}
+          render={(props) => <Home {...props} authenticated={authenticated} user={user} api={api} navbar={navbar} />}
+        />
+        <SecureRoute
+          path='/coffee-shops'
+          exact={true}
+          render={(props) => <CoffeeShopsList {...props} authenticated={authenticated} user={user} api={api} navbar={navbar}/>}
+        />
+        <SecureRoute
+          path='/coffee-shops/:id'
+          render={(props) => <CoffeeShopEdit {...props} authenticated={authenticated} user={user} api={api} navbar={navbar}/>}
+        />
+      </Switch>
+    )
+  }
+});
+
+class App extends Component {
+
+  render() {
+    return (
+      <Router>
+        <Security issuer='https://{yourOktaUrl}/oauth2/default'
+              clientId='{yourClientId}'
+              redirectUri={window.location.origin + '/callback'}
+              pkce={true}>
+          <Route path='/callback' component={LoginCallback} />
+          <AuthWrapper />
+        </Security>
+      </Router>
+    )
+  }
+}
+
+export default App;
+----
+====
+
+. Update `src/Home.js`: [`coffee-home-secure`]
++
+.`src/Home.js`
+[%collapsible]
+====
+[source,jsx]
+----
+import React, { Component } from 'react';
+import './App.css';
+import { Link } from 'react-router-dom';
+import { Button, Container } from 'reactstrap';
+
+class Home extends Component {
+
+  render() {
+    if (this.props.authenticated === null) {
+      return <p>Loading...</p>;
+    }
+
+    return (
+      <div className="app">
+        {this.props.navbar}
+        <Container fluid>
+          { this.props.authenticated ?
+            <div>
+              <p>Welcome, {this.props.user.name}</p>
+              <Button color="secondary">
+                <Link className="app-link" to="/coffee-shops">Manage Coffee Shops</Link>
+              </Button>
+            </div> :
+            <div>
+              <p>Please log in to manage coffee shops.</p>
+              <Button color="secondary" disabled={true}>
+                Manage Coffee Shops
+              </Button>
+            </div>
+          }
+        </Container>
+      </div>
+    );
+  }
+}
+
+export default Home;
+----
+====
+
+. Update `src/NavBar.js` to add login and logout buttons: [`coffee-navbar-secure`]
++
+.`src/NavBar.js`
+[%collapsible]
+====
+[source,jsx]
+----
+import React, { Component } from 'react';
+import { Button, Collapse, Nav, Navbar, NavbarBrand, NavbarToggler, NavItem, NavLink } from 'reactstrap';
+import { Link } from 'react-router-dom';
+
+class NavBar extends Component {
+
+  constructor(props) {
+    super(props);
+    this.state = {isOpen: false};
+    this.toggle = this.toggle.bind(this);
+  }
+
+  toggle() {
+    this.setState({
+      isOpen: !this.state.isOpen
+    });
+  }
+
+  render() {
+    const {isAuthenticated, login, logout} = this.props;
+
+    return <Navbar color="light" light expand="md">
+      <NavbarBrand tag={Link} to="/">Home</NavbarBrand>
+      <NavbarToggler onClick={this.toggle}/>
+      <Collapse isOpen={this.state.isOpen} navbar>
+        <Nav className="ml-auto" navbar>
+          <NavItem>
+            <NavLink
+              href="https://twitter.com/oktadev">@oktadev</NavLink>
+          </NavItem>
+          <NavItem>
+            <NavLink href="https://github.com/oktadeveloper/okta-kotlin-react-crud-example">GitHub</NavLink>
+          </NavItem>
+          { !isAuthenticated ?
+            <NavItem>
+              <Button color="secondary" outline onClick={login}>Login</Button>
+            </NavItem> :
+            <NavItem>
+              <Button color="secondary" outline onClick={logout}>Logout</Button>
+            </NavItem>
+          }
+        </Nav>
+      </Collapse>
+    </Navbar>;
+  }
+}
+
+export default NavBar;
+----
+====
+
+=== Test Your Secured Kotlin + React Application
+
+. Run the resource server (if you need to):
+
+  ./gradlew bootRun
+
+. Start the React client:
+
+  yarn start
+
+. Open a browser: `http://localhost:3000`.
+
+. Click the **Login** button in the header.
+
+. Click **Manage Coffee Shops** to show CRUD functionality.
+
+== React + Spring Boot + Kotlin is a Killer Combination!
+
+⚡️ Find the code on GitHub: https://github.com/oktadeveloper/okta-kotlin-react-crud-example[@oktadeveloper/okta-kotlin-react-crud-example].
+
+👀 Read the blog post: https://developer.okta.com/blog/2020/01/13/kotlin-react-crud[Build a CRUD Application with Kotlin and React].
+

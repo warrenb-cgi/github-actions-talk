@@ -1,0 +1,120 @@
+name: Build and Test
+on:
+  push:
+    branches-ignore:
+      - gh-pages
+# References:
+#   https://github.com/docker/build-push-action/blob/master/docs/advanced/share-image-jobs.md
+#   https://playwright.dev/docs/ci
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      # this is a shallow checkout of the edge commit only
+      # add all history: https://github.com/actions/checkout#fetch-all-history-for-all-tags-and-branches
+      # add tags https://github.com/actions/checkout/issues/290#issuecomment-714628110
+      - uses: actions/checkout@v2
+      - id: setup-buildx
+        uses: docker/setup-buildx-action@v2
+      - run: mkdir -p /tmp/example-app
+      - id: build-container
+        uses: docker/build-push-action@v3
+        with:
+          context: .
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          tags: example-app:latest
+          outputs: type=docker,dest=/tmp/example-app/image.tar
+      - id: build-windows-tar
+        uses: docker/build-push-action@v3
+        with:
+          context: .
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          tags: example-app:latest
+          target: windows-export
+          outputs: type=local,dest=/tmp/example-app/windows
+      - run: cd /tmp && zip -r example-app.zip example-app
+      - id: upload-artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: example-app
+          path: /tmp/example-app.zip
+          retention-days: 1
+      - run: echo "::notice title=Success::Successfully built example app with hash ${{fromJSON(steps.build-container.outputs.metadata)['containerimage.config.digest']}}"
+  integration-test:
+    needs: build
+    strategy:
+      # we want all the tests to run
+      fail-fast: false
+      matrix:
+        os: [ubuntu, windows]
+    runs-on: ${{ matrix.os }}-latest
+    steps:
+      - id: checkout-tests
+        uses: actions/checkout@v2
+        with:
+          path: tests
+      - uses: actions/setup-node@v2
+        with:
+          node-version: '16'
+          # not present at root, so need to say where
+          cache-dependency-path: tests/integration-test/package-lock.json
+      - id: install
+        shell: bash
+        run: |
+          cd tests/integration-test
+          npm ci
+          npx playwright install --with-deps
+      - id: download-artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: example-app
+      - id: decompress-artifact
+        shell: bash
+        run: unzip example-app.zip
+      - id: test-unix
+        shell: bash
+        if: matrix.os != 'windows'
+        run: |
+          docker load --input example-app/image.tar
+          cd tests/integration-test
+          SUT_LAUNCH='docker run --name system-under-test -p 8080:8080 example-app:latest' \
+            npx playwright test
+      - id: test-win
+        shell: pwsh
+        if: matrix.os == 'windows'
+        run: |
+          $runPath = (Resolve-Path example-app\windows\run.bat).Path
+          cd tests/integration-test
+          $Env:SUT_LAUNCH="$runPath"
+          & npx playwright test
+          if ($LastExitCode -gt 0) { throw "tests failed with error $LastExitCode" }
+      - id: checkout-publish
+        # proceed even if tests failed
+        if: ${{ always() }}
+        uses: actions/checkout@v2
+        with:
+          ref: gh-pages
+          path: publish
+          # This will switch the user that makes commits
+          # GitHub does not trigger workflows for changes made by the action runner
+          # https://docs.github.com/en/actions/using-workflows/triggering-a-workflow#triggering-a-workflow-from-a-workflow
+          token: ${{ secrets.ACTION_PAT }}
+      - id: publish-results
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          if [[ -e tests/integration-test/playwright-report ]]; then
+            mkdir -p "publish/playwright-report/${{github.ref_name}}/${{matrix.os}}"
+            find "publish/playwright-report/${{github.ref_name}}/${{matrix.os}}" -mindepth 1 -delete
+            cp -r tests/integration-test/playwright-report/. "publish/playwright-report/${{github.ref_name}}/${{matrix.os}}"
+            git -C publish config user.email "${{secrets.ACTION_GIT_EMAIL}}"
+            git -C publish config user.name "${{secrets.ACTION_GIT_NAME}}"
+            git -C publish add --all
+            git -C publish commit -m "Test result updates from ${{matrix.os}} run ${{github.run_number}}"
+            git -C publish push
+            REPO_NAME="${{github.repository}}"
+            REPO_NAME="${REPO_NAME#*/}"
+            echo "::notice title=Playwright report for ${{matrix.os}}::https://${{github.repository_owner}}.github.io/$REPO_NAME/playwright-report/${{github.ref_name}}/${{matrix.os}}/"
+          fi

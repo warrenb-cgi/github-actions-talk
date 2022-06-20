@@ -1,0 +1,68 @@
+name: Maintain GitHub page index pages
+on:
+  push:
+    branches:
+      - gh-pages
+# This will prevent concurrent updates
+# Only the last run counts, so we can cancel in-progress ones
+concurrency: 
+  group: gh-pages-index
+  cancel-in-progress: true
+jobs:
+  maintain-pages:
+    runs-on: ubuntu-latest
+    steps:
+    - id: checkout
+      uses: actions/checkout@v2
+      with:
+        # This will switch the user that makes commits
+        # GitHub does not trigger workflows for changes made by the action runner
+        # https://docs.github.com/en/actions/using-workflows/triggering-a-workflow#triggering-a-workflow-from-a-workflow
+        token: ${{ secrets.ACTION_PAT }}
+    - id: generate-indexes
+      uses: actions/github-script@v6
+      with:
+        # this is probably too much code to put into a yaml file - it should be its own action
+        script: |
+          const fs = require('node:fs/promises');
+          const path = require('node:path');
+
+          const GENERATOR = '<metadata name="generator" content="action-indexer">'
+          let dirs = ["."];
+          while (dirs.length) {
+            const dir = dirs.pop();
+            const children = (await fs.readdir(dir, {withFileTypes: true})).filter(c => !c.name.startsWith("."));
+            let indexFound = false;
+            for (let child of children) {
+              if (child.isDirectory()) {
+                dirs.push(path.join(dir, child.name));
+              } else if (child.name == "index.html") {
+                indexFound = true;
+              }
+            }
+            let indexGenerate = !indexFound;
+            if (indexFound) {
+              const currentIndexContent = await fs.readFile(path.join(dir, "index.html"), {encoding: "utf8"});
+              if (currentIndexContent.indexOf(GENERATOR) >= 0) {
+                indexGenerate = true;
+              }
+            }
+            if (indexGenerate) {
+              const indexContent = "<!DOCTYPE html><html><head>" + GENERATOR + 
+                `<title>Index of ${dir}</title></head><body><h1>Index of ${dir}</h1><ul>` +
+                children.filter(c => c.name != "index.html").map(c => {
+                  const display = c.name + (c.isDirectory() ? "/" : "");
+                  return `<li><a href="${c.name}">${display}</a></li>`;
+                }).join("") + "</ul></body></html>"
+              await fs.writeFile(path.join(dir, "index.html"), indexContent);
+            }
+          }
+    - id: publish-indexes
+      run: |
+        if [[ `git status --porcelain` ]]; then
+          git config user.email "${{secrets.ACTION_GIT_EMAIL}}"
+          git config user.name "${{secrets.ACTION_GIT_NAME}}"
+          git add --all
+          git commit -m "Index updates"
+          git push
+        fi
