@@ -26,7 +26,7 @@
   * https://github.com/warrenb-cgi/github-actions-talk-features/blob/main/.github/workflows/build.yml#L10-L44
 * _Build and test - how (3)_
   * https://github.com/warrenb-cgi/github-actions-talk-features/blob/main/.github/workflows/build.yml#L45-L92
-  * https://github.com/warrenb-cgi/github-actions-talk-features/blob/main/.github/workflows/build.yml#L93-L120
+  * https://github.com/warrenb-cgi/github-actions-talk-features/blob/main/.github/workflows/build.yml#L93-L129
 * _Build and test - how (4)_
   * https://github.com/warrenb-cgi/github-actions-talk-features/blob/main/.github/workflows/ghpage-indexes.yml#L25-L59
   * https://github.com/warrenb-cgi/github-actions-talk-features/blob/main/.github/workflows/cleanup-report.yml#L3-L8
