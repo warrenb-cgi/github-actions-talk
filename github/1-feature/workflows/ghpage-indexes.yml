@@ -64,5 +64,14 @@ jobs:
           git config user.name "${{secrets.ACTION_GIT_NAME}}"
           git add --all
           git commit -m "Index updates"
-          git push
+          attempts=0; success=1
+          while [[ $attempts -lt 5 && $success -ne 0 ]]; do
+            attempts=$(( $attempts + 1 ))
+            git pull --rebase
+            git push && success=$? || success=$?
+          done
+          if [[ ! $success ]]; then
+            echo "Couldn't push after 5 tries"
+            exit 1
+          fi
         fi

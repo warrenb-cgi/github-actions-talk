@@ -51,7 +51,7 @@ for dir in example-app integration-test server; do
 done
 cp "$SOURCE_REPO/Dockerfile" "$SOURCE_REPO/LICENSE" "$REPO"
 mkdir -p "$REPO/.github"
-cp -r "$SOURCE_REPO/github/." "$REPO/.github"
+cp -r "$SOURCE_REPO/github/1-feature/." "$REPO/.github"
 cat > "$REPO/README.md" <<END
 # $(basename "$REPO")
 
@@ -73,7 +73,7 @@ git_op checkout --orphan gh-pages
 git_op rm -rf .
 git_op clean -dxf
 mkdir -p "$REPO/.github"
-cp -r "$SOURCE_REPO/github/workflows" "$REPO/.github"
+cp -r "$SOURCE_REPO/github/1-feature/." "$REPO/.github"
 cat > "$REPO/index.html" << END
 <!DOCTYPE html>
 <html>

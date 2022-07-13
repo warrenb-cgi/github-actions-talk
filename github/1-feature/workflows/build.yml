@@ -113,7 +113,16 @@ jobs:
             git -C publish config user.name "${{secrets.ACTION_GIT_NAME}}"
             git -C publish add --all
             git -C publish commit -m "Test result updates from ${{matrix.os}} run ${{github.run_number}}"
-            git -C publish push
+            attempts=0; success=1
+            while [[ $attempts -lt 5 && $success -ne 0 ]]; do
+              attempts=$(( $attempts + 1 ))
+              git -C publish pull --rebase
+              git -C publish push && success=$? || success=$?
+            done
+            if [[ ! $success ]]; then
+              echo "Couldn't push after 5 tries"
+              exit 1
+            fi
             REPO_NAME="${{github.repository}}"
             REPO_NAME="${REPO_NAME#*/}"
             echo "::notice title=Playwright report for ${{matrix.os}}::https://${{github.repository_owner}}.github.io/$REPO_NAME/playwright-report/${{github.ref_name}}/${{matrix.os}}/"
